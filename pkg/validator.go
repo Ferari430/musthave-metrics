@@ -40,3 +40,15 @@ func Validate(metricType, metricName, metricValue string) (int, error) {
 
 	return http.StatusOK, nil
 }
+
+func ValidateNameType(metricType, metricName string) (int, error) {
+	if metricName == "" {
+		return http.StatusNotFound, errors.New("metric name is required")
+	}
+
+	if metricType != models.Counter && metricType != models.Gauge {
+		return http.StatusNotFound, errors.New("unknown metric type")
+	}
+
+	return http.StatusOK, nil
+}

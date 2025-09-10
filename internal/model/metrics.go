@@ -10,9 +10,10 @@ const (
 // Delta и Value объявлены через указатели,
 // что бы отличать значение "0", от не заданного значения
 // и соответственно не кодировать в структуру.
+
 type Metrics struct {
-	ID    string   `json:"id"`
-	MType string   `json:"type"`
+	ID    string   `json:"id"`   //metricName
+	MType string   `json:"type"` // тут может быть Counter или Gauge
 	Delta *int64   `json:"delta,omitempty"`
 	Value *float64 `json:"value,omitempty"`
 	Hash  string   `json:"hash,omitempty"`
@@ -34,4 +35,10 @@ type MetricsAgent struct {
 	GCSys         uint64  `json:"gc_sys"`
 	NumGC         uint32  `json:"num_gc"`
 	GCCPUFraction float64 `json:"gc_cpu_fraction"`
+}
+
+type HTMLMetricData struct {
+	Name  string
+	Value string
+	Type  string
 }

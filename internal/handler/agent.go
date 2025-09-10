@@ -10,12 +10,15 @@ import (
 )
 
 type AgentSender struct {
-	client  *http.Client
-	service *agentService.AgentService
+	client     *http.Client
+	service    *agentService.AgentService
+	serverPort string
 }
 
-func NewAgentSender(service *agentService.AgentService, client *http.Client) *AgentSender {
-	return &AgentSender{client: client, service: service}
+func NewAgentSender(service *agentService.AgentService, client *http.Client, serverPort string) *AgentSender {
+	return &AgentSender{client: client, service: service,
+		serverPort: serverPort,
+	}
 }
 
 func (a *AgentSender) Consumer(wg *sync.WaitGroup) {
@@ -33,7 +36,7 @@ func (a *AgentSender) SendHTTP(metrics map[string]float64) {
 		var url string
 
 		metricType := "gauge"
-		url = fmt.Sprintf("http://localhost:8080/update/%v/%v/%v", metricType, key, val)
+		url = fmt.Sprintf("http://localhost:%v/update/%v/%v/%v", a.serverPort, metricType, key, val)
 		log.Println("sending request to " + url)
 
 		req, err := http.NewRequest("POST", url, nil)

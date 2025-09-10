@@ -1,12 +1,18 @@
 package handler
 
 import (
+	"encoding/json"
+	"fmt"
+	"html"
+	"io"
 	"log"
 	"net/http"
 	"strings"
 
+	models "github.com/Ferari430/musthave-metrics/internal/model"
 	"github.com/Ferari430/musthave-metrics/internal/service"
 	"github.com/Ferari430/musthave-metrics/pkg"
+	"github.com/go-chi/chi/v5"
 )
 
 type ServerHandler struct {
@@ -17,13 +23,135 @@ type ServerHandlerDeps struct {
 	Service *service.ServiceServer
 }
 
-func NewServerHandler(router *http.ServeMux, deps ServerHandlerDeps) {
+func NewServerHandler(router *chi.Mux, deps ServerHandlerDeps) {
 
 	handler := &ServerHandler{
 		Service: deps.Service,
 	}
+	router.Post("/update/{typeM}/{nameM}/{value}", pkg.RequestLogger(handler.ProcessingMetric))
+	router.Get("/update/{typeM}/{nameM}", pkg.RequestLogger(handler.GetMetric))
+	router.Get("/", pkg.RequestLogger(handler.MetricsPage))
+	router.Post("/update", pkg.RequestLogger(handler.Update))
+	router.Post("/value", pkg.RequestLogger(handler.Value))
 
-	router.HandleFunc("POST /update/{typeM}/{nameM}/{value}", handler.ProcessingMetric)
+}
+
+func (handler *ServerHandler) Update(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method must be POST", http.StatusMethodNotAllowed)
+		return
+	}
+
+	ct := r.Header.Get("Content-Type")
+
+	if !strings.HasPrefix(ct, "application/json") {
+
+		http.Error(w, "Content-Type must be application/json", http.StatusUnsupportedMediaType)
+		return
+	}
+
+	var metric *models.Metrics
+
+	err := json.NewDecoder(r.Body).Decode(&metric)
+	if err != nil {
+		http.Error(w, "cant decode body", http.StatusBadRequest)
+		return
+	}
+
+	log.Printf("metric from agent: %v\n", metric)
+	var updatedMetric *models.Metrics
+	updatedMetric, err = handler.Service.UpdateMetric(metric)
+
+	log.Println("updated metric:", updatedMetric)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// responce
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	err = json.NewEncoder(w).Encode(updatedMetric)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+}
+
+func (handler *ServerHandler) Value(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method must be POST", http.StatusMethodNotAllowed)
+		return
+	}
+
+	ct := r.Header.Get("Content-Type")
+
+	if !strings.HasPrefix(ct, "application/json") {
+
+		http.Error(w, "Content-Type must be application/json", http.StatusUnsupportedMediaType)
+		return
+	}
+
+	var metric models.Metrics
+
+	err := json.NewDecoder(r.Body).Decode(&metric)
+	log.Println("empty metric:", metric)
+	if err != nil {
+		http.Error(w, "cant decode body", http.StatusBadRequest)
+		return
+	}
+
+	log.Printf("metric from agent: %v\n", metric)
+	err = handler.Service.GetMetricJSON(&metric)
+	if err != nil {
+		log.Println("error1")
+		return
+	}
+
+	// responce
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	err = json.NewEncoder(w).Encode(metric)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+}
+
+func (handler *ServerHandler) GetMetric(w http.ResponseWriter, r *http.Request) {
+	metricType := strings.ToLower(chi.URLParam(r, "typeM"))
+	metricName := strings.ToLower(chi.URLParam(r, "nameM"))
+
+	log.Printf("metricType=%q, metricName=%q\n", metricType, metricName)
+
+	existingmetric, err := handler.Service.GetMetric(metricType, metricName)
+	if err != nil {
+		http.Error(w, "invalid metric", http.StatusBadRequest)
+		return
+	}
+
+	var txt string
+	switch metricType {
+	case models.Counter:
+		txt = fmt.Sprintf("%v", *existingmetric.Delta)
+	case models.Gauge:
+		txt = fmt.Sprintf("%v", *existingmetric.Value)
+	default:
+		txt = fmt.Sprintf("unknown metric type: %q", metricType)
+		http.Error(w, txt, http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	io.WriteString(w, txt)
+
+}
+
+func (handler *ServerHandler) Metric(w http.ResponseWriter, r *http.Request) {
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
 
 }
 
@@ -39,9 +167,9 @@ func (handler *ServerHandler) ProcessingMetric(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	metricType := parts[1]
-	metricName := parts[2]
-	metricValue := parts[3]
+	metricType := strings.ToLower(chi.URLParam(r, "typeM"))
+	metricName := strings.ToLower(chi.URLParam(r, "nameM"))
+	metricValue := strings.ToLower(chi.URLParam(r, "value"))
 
 	log.Printf("metricType=%q, metricName=%q, metricValue=%q\n", metricType, metricName, metricValue)
 	status, err := pkg.Validate(metricType, metricName, metricValue)
@@ -55,5 +183,26 @@ func (handler *ServerHandler) ProcessingMetric(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	pkg.ResponceHTTP(w, "ok", http.StatusOK)
+	pkg.ResponceHTTP(w, "ok from chi router", http.StatusOK)
+}
+
+// FIX: На место ID присваивается Name. Обновить структуру, хотя это может завалить тесты
+func (handler *ServerHandler) MetricsPage(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+
+	metrics := handler.Service.AllMetrics() // безопасно возвращает срез HTMLMetricData
+
+	// Начало HTML
+	fmt.Fprint(w, "<!DOCTYPE html>\n<html>\n<head>\n<title>Metrics</title>\n</head>\n<body>\n")
+	fmt.Fprint(w, "<h1>Current Metrics</h1>\n<ul>\n")
+
+	for _, m := range metrics {
+		name := html.EscapeString(m.Name)
+		value := html.EscapeString(m.Value)
+		typ := html.EscapeString(m.Type)
+		fmt.Fprintf(w, "<li>%s (%s) = %s</li>\n", name, typ, value)
+	}
+
+	fmt.Fprint(w, "</ul>\n</body>\n</html>")
 }
