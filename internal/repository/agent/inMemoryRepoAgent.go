@@ -2,37 +2,50 @@ package repositoryAgent
 
 import (
 	"log"
+	"maps"
 	"sync"
+
+	models "github.com/Ferari430/musthave-metrics/internal/model"
 )
 
 type RepositoryAgent struct {
-	mu      sync.RWMutex
-	metrics map[string]float64
+	mu           sync.RWMutex
+	metricsStore map[string]*models.Metrics
 }
 
 func NewInMemoryAgentDB() *RepositoryAgent {
 	return &RepositoryAgent{
-		metrics: make(map[string]float64),
+		metricsStore: make(map[string]*models.Metrics),
 	}
 }
 
-func (r *RepositoryAgent) Add(metrics map[string]float64) {
+func (r *RepositoryAgent) Add(metrics []*models.Metrics) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	for k, v := range metrics {
-		r.metrics[k] = v
-	}
 
-	log.Println("Metrics added to repository")
+	for _, metric := range metrics {
+		r.metricsStore[metric.ID] = metric
+	}
+	r.PrintAll()
 
 }
 
-func (r *RepositoryAgent) GetAllMetrics() map[string]float64 {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	copy := make(map[string]float64)
-	for k, v := range r.metrics {
-		copy[k] = v
+func (r *RepositoryAgent) PrintAll() {
+	for name, metric := range r.metricsStore {
+		switch metric.MType {
+		case "gauge":
+			log.Printf("Name: %v, metric: %v", name, *metric.Value)
+		case "counter":
+			log.Printf("Name: %v, metric: %v", name, *metric.Delta)
+		}
 	}
-	return copy
+	log.Println("----------------------------------")
+}
+
+func (r *RepositoryAgent) AllMetrics() map[string]*models.Metrics {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	metrics := make(map[string]*models.Metrics, len(r.metricsStore))
+	maps.Copy(metrics, r.metricsStore)
+	return metrics
 }

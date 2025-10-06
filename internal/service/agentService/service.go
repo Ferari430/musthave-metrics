@@ -2,25 +2,26 @@ package agentService
 
 import (
 	"log"
-	"math/rand"
 	"runtime"
 	"sync"
 	"time"
 
+	models "github.com/Ferari430/musthave-metrics/internal/model"
 	repositoryAgent "github.com/Ferari430/musthave-metrics/internal/repository/agent"
 )
 
 type AgentService struct {
 	repo            *repositoryAgent.RepositoryAgent
-	metricsChannel  chan map[string]float64
+	metricsChannel  chan []*models.Metrics
 	pollCount       int64
 	mu              sync.Mutex
-	lastPollMetrics map[string]float64
+	lastPollMetrics []*models.Metrics
+	typedMetrics    map[string]*models.Metrics
 }
 
 func NewAgentService(repo *repositoryAgent.RepositoryAgent) *AgentService {
 
-	channel := make(chan map[string]float64)
+	channel := make(chan []*models.Metrics)
 	agent := &AgentService{repo: repo,
 		metricsChannel: channel,
 		mu:             sync.Mutex{}}
@@ -28,37 +29,30 @@ func NewAgentService(repo *repositoryAgent.RepositoryAgent) *AgentService {
 	return agent
 }
 
-func (a *AgentService) MetricsChannel() chan map[string]float64 {
+func (a *AgentService) MetricsChannel() chan []*models.Metrics {
 	return a.metricsChannel
 }
 
-func (a *AgentService) CollectMetrics(m *runtime.MemStats) map[string]float64 {
+func float64Ptr(v float64) *float64 { return &v }
+func int64Ptr(v int64) *int64       { return &v }
+
+// сбор метрик и их типизация
+func (a *AgentService) CollectMetrics(m *runtime.MemStats) []*models.Metrics {
+
 	runtime.ReadMemStats(m)
 	a.mu.Lock()
 	a.pollCount++
 	a.mu.Unlock()
-	metrics := map[string]float64{
-		"Alloc":         float64(m.Alloc),
-		"TotalAlloc":    float64(m.TotalAlloc),
-		"Sys":           float64(m.Sys),
-		"Frees":         float64(m.Frees),
-		"HeapAlloc":     float64(m.HeapAlloc),
-		"HeapSys":       float64(m.HeapSys),
-		"HeapIdle":      float64(m.HeapIdle),
-		"HeapInuse":     float64(m.HeapInuse),
-		"HeapObjects":   float64(m.HeapObjects),
-		"HeapReleased":  float64(m.HeapReleased),
-		"GCSys":         float64(m.GCSys),
-		"NumGC":         float64(m.NumGC),
-		"GCCPUFraction": m.GCCPUFraction,
-		"RandomValue":   rand.Float64(),
-		"PollCount":     float64(a.pollCount),
+	metrics := []*models.Metrics{
+		//gauge
+		{ID: "TotalAlloc", MType: "gauge", Value: float64Ptr(float64(m.TotalAlloc))},
+		{ID: "HeapSys", MType: "gauge", Value: float64Ptr(float64(m.HeapSys))},
+
+		//counter
+		{ID: "Frees", MType: "counter", Delta: int64Ptr(int64(m.Frees))},
+		{ID: "PollCounter", MType: "counter", Delta: int64Ptr(int64(a.pollCount))},
 	}
 
-	log.Println("-------------------Metrics collected-------------------:")
-	log.Println("-------------------------------", metrics["PollCount"], "---------------------------------")
-	log.Println(metrics)
-	log.Println("---------------------------------------------------------")
 	return metrics
 }
 
@@ -70,9 +64,10 @@ func (a *AgentService) StartTicker(t1, t2 time.Ticker, m *runtime.MemStats, wg *
 		for range t1.C {
 			metrics := a.CollectMetrics(m)
 			a.mu.Lock()
-			a.lastPollMetrics = metrics
+			a.lastPollMetrics = metrics // slice
 			a.mu.Unlock()
-			a.repo.Add(metrics)
+			a.repo.Add(metrics) //map
+
 		}
 	}()
 
@@ -82,7 +77,6 @@ func (a *AgentService) StartTicker(t1, t2 time.Ticker, m *runtime.MemStats, wg *
 			a.mu.Lock()
 			metricsToSend := a.lastPollMetrics
 			a.mu.Unlock()
-
 			if metricsToSend != nil {
 				log.Println("send to server")
 				a.metricsChannel <- metricsToSend

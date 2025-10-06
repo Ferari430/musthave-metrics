@@ -12,6 +12,7 @@ import (
 	models "github.com/Ferari430/musthave-metrics/internal/model"
 	"github.com/Ferari430/musthave-metrics/internal/service"
 	"github.com/Ferari430/musthave-metrics/pkg"
+	"github.com/Ferari430/musthave-metrics/pkg/logger"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -28,14 +29,17 @@ func NewServerHandler(router *chi.Mux, deps ServerHandlerDeps) {
 	handler := &ServerHandler{
 		Service: deps.Service,
 	}
-	router.Post("/update/{typeM}/{nameM}/{value}", pkg.RequestLogger(handler.ProcessingMetric))
-	router.Get("/update/{typeM}/{nameM}", pkg.RequestLogger(handler.GetMetric))
-	router.Get("/", pkg.RequestLogger(handler.MetricsPage))
-	router.Post("/update", pkg.RequestLogger(handler.Update))
-	router.Post("/value", pkg.RequestLogger(handler.Value))
+	router.Post("/update/{typeM}/{nameM}/{value}", logger.RequestLogger(handler.ProcessingMetric))
+	router.Get("/update/{typeM}/{nameM}", logger.RequestLogger(handler.GetMetric))
+	router.Get("/", logger.RequestLogger(handler.MetricsPage))
+	router.Post("/update", logger.RequestLogger(handler.Update))
+	router.Post("/value", logger.RequestLogger(handler.Value))
+	router.Post("/valueJ", logger.RequestLogger(pkg.GzipMiddleware(handler.JSONCompressedMetric)))
+	router.Get("/ping", logger.RequestLogger(handler.Ping))
 
 }
 
+// handler for client
 func (handler *ServerHandler) Update(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method must be POST", http.StatusMethodNotAllowed)
@@ -78,6 +82,7 @@ func (handler *ServerHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// handler for client
 func (handler *ServerHandler) Value(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method must be POST", http.StatusMethodNotAllowed)
@@ -118,6 +123,7 @@ func (handler *ServerHandler) Value(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// handler for agent
 func (handler *ServerHandler) GetMetric(w http.ResponseWriter, r *http.Request) {
 	metricType := strings.ToLower(chi.URLParam(r, "typeM"))
 	metricName := strings.ToLower(chi.URLParam(r, "nameM"))
@@ -186,7 +192,6 @@ func (handler *ServerHandler) ProcessingMetric(w http.ResponseWriter, r *http.Re
 	pkg.ResponceHTTP(w, "ok from chi router", http.StatusOK)
 }
 
-// FIX: На место ID присваивается Name. Обновить структуру, хотя это может завалить тесты
 func (handler *ServerHandler) MetricsPage(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
@@ -205,4 +210,45 @@ func (handler *ServerHandler) MetricsPage(w http.ResponseWriter, r *http.Request
 	}
 
 	fmt.Fprint(w, "</ul>\n</body>\n</html>")
+}
+
+func (handler *ServerHandler) JSONCompressedMetric(w http.ResponseWriter, r *http.Request) {
+	log.Println("JSONCompressedHandler")
+
+	if r.Method != http.MethodPost {
+
+		http.Error(w, "method must be POST", http.StatusMethodNotAllowed)
+	}
+
+	if r.Header.Get("Content-Type") != "application/json" {
+
+		http.Error(w, "content-type must be json", http.StatusBadRequest)
+	}
+
+	var metric []*models.Metrics
+	err := json.NewDecoder(r.Body).Decode(&metric)
+	if err != nil {
+		log.Println(err)
+		log.Println("cant decode body")
+		http.Error(w, "cant decode body", http.StatusBadRequest)
+		return
+	}
+
+	err = handler.Service.AddJsonMetricsBatchTicker(metric)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+
+}
+
+func (handler *ServerHandler) Ping(w http.ResponseWriter, r *http.Request) {
+	err := handler.Service.PingPostgres()
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	io.WriteString(w, "ping to db")
+
 }

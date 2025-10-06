@@ -29,32 +29,34 @@ func (r *InMemoryRepo) Add(metrics *models.Metrics) {
 	r.PrintAll()
 }
 
-func (r *InMemoryRepo) MetricJSON(metric *models.Metrics) bool {
+func (r *InMemoryRepo) MetricJSON(metric *models.Metrics) error {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
 	oldmetric, ok := r.memStorage[metric.ID]
-	if !ok {
-		return false
+	if ok {
+		switch metric.MType {
+		case "gauge":
+			if metric.Value == nil && oldmetric.Value != nil {
+				// создаём новый указатель и копируем значение
+				v := *oldmetric.Value
+				metric.Value = &v
+			}
+		case "counter":
+			if metric.Delta == nil && oldmetric.Delta != nil {
+				d := *oldmetric.Delta
+				metric.Delta = &d
+			}
+
+		}
+	} else {
+		r.memStorage[metric.ID] = metric
+		r.PrintAll()
 	}
 
 	// Дополняем только nil-поля
-	switch metric.MType {
-	case "gauge":
-		if metric.Value == nil && oldmetric.Value != nil {
-			// создаём новый указатель и копируем значение
-			v := *oldmetric.Value
-			metric.Value = &v
-		}
-	case "counter":
-		if metric.Delta == nil && oldmetric.Delta != nil {
-			d := *oldmetric.Delta
-			metric.Delta = &d
-		}
-	}
 
-	log.Printf("new value: %v, new delta: %v\n", metric.Value, metric.Delta)
-	return true
+	return nil
 }
 
 func (r *InMemoryRepo) Metrics() map[string]*models.Metrics {
@@ -74,7 +76,6 @@ func (r *InMemoryRepo) Update(metric *models.Metrics) (*models.Metrics, error) {
 	}
 
 	r.memStorage[val.ID] = metric
-	log.Printf("old metric value: %v. Updated metric value %v\n", *val.Value, *metric.Value)
 	return metric, nil
 }
 
@@ -102,4 +103,31 @@ func (r *InMemoryRepo) PrintAll() {
 
 func (r *InMemoryRepo) Metric(name string) (*models.Metrics, bool) {
 	return nil, false
+}
+
+func (r *InMemoryRepo) MetricJSONBatch(metrics []*models.Metrics) error {
+	r.mu.Lock() // Блокируем мьютекс один раз для всей операции
+	defer r.mu.Unlock()
+
+	for _, metric := range metrics {
+		oldmetric, ok := r.memStorage[metric.ID]
+		if ok {
+			switch metric.MType {
+			case "gauge":
+				if metric.Value != nil {
+					oldmetric.Value = metric.Value
+				}
+			case "counter":
+				if metric.Delta != nil {
+					oldmetric.Delta = metric.Delta
+				}
+			}
+		} else {
+			// Если метрика новая, добавляем её в хранилище
+			r.memStorage[metric.ID] = metric
+		}
+	}
+
+	r.PrintAll()
+	return nil
 }

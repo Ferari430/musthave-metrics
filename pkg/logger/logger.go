@@ -1,4 +1,4 @@
-package pkg
+package logger
 
 import (
 	"net/http"
@@ -50,7 +50,6 @@ func InitLogger(level string) error {
 	Log = zl
 
 	return nil
-
 }
 
 func RequestLogger(h http.HandlerFunc) http.HandlerFunc {

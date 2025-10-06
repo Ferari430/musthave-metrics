@@ -3,25 +3,37 @@ package service
 import (
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/Ferari430/musthave-metrics/internal/interfaces"
 	models "github.com/Ferari430/musthave-metrics/internal/model"
 	"github.com/Ferari430/musthave-metrics/pkg"
+	"github.com/Ferari430/musthave-metrics/pkg/logger"
 )
 
 type ServiceServer struct {
-	Repo interfaces.Repository
+	Repo     interfaces.Repository
+	Producer *pkg.Producer
+	ticker   *time.Ticker
+	Consumer *pkg.Consumer
+	Postgres interfaces.Postgres
 }
 
-func NewServiceServer(Repo interfaces.Repository) *ServiceServer {
-	return &ServiceServer{Repo: Repo}
+func NewServiceServer(Repo interfaces.Repository, producer *pkg.Producer,
+	ticker *time.Ticker, consumer *pkg.Consumer, postgres interfaces.Postgres) *ServiceServer {
+	return &ServiceServer{Repo: Repo,
+		Producer: producer,
+		ticker:   ticker,
+		Consumer: consumer,
+		Postgres: postgres,
+	}
 }
 
 func (s *ServiceServer) UpdateMetric(metric *models.Metrics) (*models.Metrics, error) {
-
 	UpdatedMetric, err := s.Repo.Update(metric)
 	if err != nil {
 
@@ -38,14 +50,13 @@ func (s *ServiceServer) GetMetricJSON(metric *models.Metrics) error {
 		fmt.Println("Value is nil")
 	}
 
-	ok := s.Repo.MetricJSON(metric)
-	if !ok {
+	err := s.Repo.MetricJSON(metric)
+	if err != nil {
 		//todo
 		return errors.New("metric not found in database")
 	}
 
 	return nil
-
 }
 
 func (s *ServiceServer) AddMetrics(metricType, metricName, metricValue string) error {
@@ -107,6 +118,8 @@ func (s *ServiceServer) GetMetric(metricType, metricName string) (*models.Metric
 	if err != nil {
 		return nil, err
 	}
+
+	logger.Log.Info("cant [logger Zap")
 
 	if statuscode != http.StatusOK {
 		return nil, errors.New("invalid metric")
@@ -170,4 +183,78 @@ func (s *ServiceServer) AllMetrics() []*models.HTMLMetricData {
 	}
 
 	return HTMLdata
+}
+
+func (s *ServiceServer) AddJsonMetricsBatch(metrics []*models.Metrics) error {
+	for _, metric := range metrics {
+
+		switch metric.MType {
+		case "gauge":
+			log.Println("Now metric: ", *metric.Value)
+		case "counter":
+			log.Println("Now metric: ", *metric.Delta)
+		}
+
+		if metric.ID == "" {
+			return errors.New("metric name is empty")
+		}
+
+	}
+
+	s.Producer.WriteMetric(metrics)
+	err := s.Repo.MetricJSONBatch(metrics)
+	if err != nil {
+		return errors.New("cant add metric in db")
+	}
+
+	return nil
+}
+
+func (s *ServiceServer) AddJsonMetricsBatchTicker(metrics []*models.Metrics) error {
+
+	select {
+	case <-s.ticker.C:
+		if err := s.Producer.WriteMetric(metrics); err != nil {
+			return err
+		}
+		log.Println("Metrics written on file")
+	default:
+	}
+	err := s.Repo.MetricJSONBatch(metrics)
+	if err != nil {
+		return errors.New("cant add metric in db")
+	}
+
+	return nil
+}
+
+func (s *ServiceServer) RestoreData() error {
+	metrics, err := s.Consumer.Restore()
+	//можно вынести логику с ошибками в pkg
+	if errors.Is(err, io.EOF) {
+		log.Println("file store is empty")
+	}
+	if err != nil {
+		return err
+	}
+	if metrics == nil {
+		log.Println("no metrics to restore")
+		return nil
+	}
+
+	err = s.Repo.MetricJSONBatch(metrics)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *ServiceServer) PingPostgres() error {
+	dsn := "postgres://postgres:pass@localhost:5432/postgres"
+	err := s.Postgres.Ping(dsn)
+	if err != nil {
+		return err
+	}
+	log.Println("Postgres is alive")
+	return nil
 }

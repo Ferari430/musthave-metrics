@@ -42,3 +42,4 @@ git fetch template && git checkout template/main .github
 - **Clean Architecture**
 - **Hexagonal Architecture**
 - **Layered Architecture**
+
