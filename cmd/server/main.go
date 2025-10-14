@@ -6,8 +6,9 @@ import (
 	"time"
 
 	"github.com/Ferari430/musthave-metrics/internal/handler"
-	"github.com/Ferari430/musthave-metrics/internal/repository"
-	"github.com/Ferari430/musthave-metrics/internal/repository/postgres"
+	repository "github.com/Ferari430/musthave-metrics/internal/repository/server"
+	fileStorage "github.com/Ferari430/musthave-metrics/internal/repository/server/file"
+
 	"github.com/Ferari430/musthave-metrics/internal/service"
 	"github.com/Ferari430/musthave-metrics/pkg"
 	"github.com/Ferari430/musthave-metrics/pkg/logger"
@@ -28,7 +29,6 @@ func main() {
 	}
 
 }
-
 func app(port, fPath string, store_interval int, restore bool, connectionString string) error {
 	router := chi.NewRouter()
 	//logger
@@ -36,25 +36,27 @@ func app(port, fPath string, store_interval int, restore bool, connectionString 
 	if err != nil {
 		return err
 	}
-
-	//repo
-	InMemoryDB := repository.NewInMemoryRepo()
-	//postgres
-	pg, err := postgres.Open(connectionString)
-	db := postgres.NewPostgresRepository(pg)
-
 	producer := pkg.NewProducer(fPath)
 	consumer := pkg.NewConsumer(fPath)
+	f := fileStorage.NewFileStorage(producer, consumer)
+
+	repo := repository.InitRepository(connectionString, fPath)
+	err = repo.Ping(connectionString)
+	if err != nil {
+		log.Println(err)
+	}
+
 	//ticker
 	ticker := time.NewTicker(time.Second * time.Duration(store_interval))
-	serviceServer := service.NewServiceServer(InMemoryDB, producer, ticker, consumer, db)
+
+	serviceServer := service.NewServiceServer(ticker, repo, f)
 	newServerHandlerDeps := handler.ServerHandlerDeps{Service: serviceServer}
 	handler.NewServerHandler(router, newServerHandlerDeps)
 
 	//restore
-	if restore {
-		serviceServer.RestoreData()
-	}
+	// if restore {
+	// 	serviceServer.RestoreData()
+	// }
 
 	return http.ListenAndServe(port, router)
 }
