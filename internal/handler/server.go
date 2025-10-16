@@ -39,7 +39,6 @@ func NewServerHandler(router *chi.Mux, deps ServerHandlerDeps) {
 
 }
 
-// handler for client
 func (handler *ServerHandler) Update(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method must be POST", http.StatusMethodNotAllowed)
@@ -82,7 +81,7 @@ func (handler *ServerHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handler for client
+// get metric json by name and type TEST THIS
 func (handler *ServerHandler) Value(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method must be POST", http.StatusMethodNotAllowed)
@@ -100,23 +99,23 @@ func (handler *ServerHandler) Value(w http.ResponseWriter, r *http.Request) {
 	var metric models.Metrics
 
 	err := json.NewDecoder(r.Body).Decode(&metric)
-	log.Println("empty metric:", metric)
+
 	if err != nil {
 		http.Error(w, "cant decode body", http.StatusBadRequest)
 		return
 	}
 
 	log.Printf("metric from agent: %v\n", metric)
-	err = handler.Service.GetMetricJSON(&metric)
+	dbMetric, err := handler.Service.GetMetricJSON(&metric)
 	if err != nil {
-		log.Println("error1")
+		log.Println("cant get metric from db:", err)
 		return
 	}
 
 	// responce
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	err = json.NewEncoder(w).Encode(metric)
+	err = json.NewEncoder(w).Encode(dbMetric)
 	if err != nil {
 		log.Println(err)
 		return
@@ -126,12 +125,13 @@ func (handler *ServerHandler) Value(w http.ResponseWriter, r *http.Request) {
 // handler for agent
 func (handler *ServerHandler) GetMetric(w http.ResponseWriter, r *http.Request) {
 	metricType := strings.ToLower(chi.URLParam(r, "typeM"))
-	metricName := strings.ToLower(chi.URLParam(r, "nameM"))
+	metricName := chi.URLParam(r, "nameM")
 
 	log.Printf("metricType=%q, metricName=%q\n", metricType, metricName)
 
 	existingmetric, err := handler.Service.GetMetric(metricType, metricName)
 	if err != nil {
+
 		http.Error(w, "invalid metric", http.StatusBadRequest)
 		return
 	}
@@ -162,6 +162,7 @@ func (handler *ServerHandler) Metric(w http.ResponseWriter, r *http.Request) {
 }
 
 func (handler *ServerHandler) ProcessingMetric(w http.ResponseWriter, r *http.Request) {
+
 	if r.Header.Get("Content-Type") != "text/plain" {
 		pkg.ResponceHTTP(w, "Content-Type must be text/plain", http.StatusBadRequest)
 		return
@@ -176,7 +177,6 @@ func (handler *ServerHandler) ProcessingMetric(w http.ResponseWriter, r *http.Re
 	metricType := strings.ToLower(chi.URLParam(r, "typeM"))
 	metricName := strings.ToLower(chi.URLParam(r, "nameM"))
 	metricValue := strings.ToLower(chi.URLParam(r, "value"))
-
 	log.Printf("metricType=%q, metricName=%q, metricValue=%q\n", metricType, metricName, metricValue)
 	status, err := pkg.Validate(metricType, metricName, metricValue)
 	if err != nil {
@@ -184,12 +184,13 @@ func (handler *ServerHandler) ProcessingMetric(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	if err := handler.Service.AddMetrics(metricType, metricName, metricValue); err != nil {
+	metric, err := handler.Service.AddMetric(metricType, metricName, metricValue)
+	if err != nil {
 		pkg.ResponceHTTP(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
-
-	pkg.ResponceHTTP(w, "ok from chi router", http.StatusOK)
+	message := fmt.Sprintf("metric add to db: %v", metric)
+	pkg.ResponceHTTP(w, message, http.StatusOK)
 }
 
 func (handler *ServerHandler) MetricsPage(w http.ResponseWriter, r *http.Request) {
@@ -225,8 +226,8 @@ func (handler *ServerHandler) JSONCompressedMetric(w http.ResponseWriter, r *htt
 		http.Error(w, "content-type must be json", http.StatusBadRequest)
 	}
 
-	var metric []*models.Metrics
-	err := json.NewDecoder(r.Body).Decode(&metric)
+	var metrics []*models.Metrics
+	err := json.NewDecoder(r.Body).Decode(&metrics)
 	if err != nil {
 		log.Println(err)
 		log.Println("cant decode body")
@@ -234,7 +235,14 @@ func (handler *ServerHandler) JSONCompressedMetric(w http.ResponseWriter, r *htt
 		return
 	}
 
-	err = handler.Service.AddJsonMetricsBatchTicker(metric)
+	for _, val := range metrics {
+		if val.MType == "gauge" {
+
+			log.Println(val.ID, val.MType, *val.Value)
+		}
+	}
+
+	err = handler.Service.AddJsonMetricsBatchTicker(metrics)
 	if err != nil {
 		log.Println(err)
 		return
@@ -243,12 +251,17 @@ func (handler *ServerHandler) JSONCompressedMetric(w http.ResponseWriter, r *htt
 }
 
 func (handler *ServerHandler) Ping(w http.ResponseWriter, r *http.Request) {
-	err := handler.Service.PingPostgres()
+
+	err := handler.Service.Repo.Ping()
+
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
+		w.WriteHeader(http.StatusOK)
+		io.WriteString(w, err.Error())
+		log.Println(err)
 		return
 	}
+
 	w.WriteHeader(http.StatusOK)
-	io.WriteString(w, "ping to db")
+	io.WriteString(w, "postgres connected")
 
 }

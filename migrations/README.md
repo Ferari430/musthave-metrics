@@ -9,3 +9,6 @@
 - откатывать изменения при необходимости
 
 Тема миграций будет подробно изучаться дальше по курсу.
+
+Run migrations: 
+migrate -database "postgres://postgres:postgres@localhost:5432/metrics?sslmode=disable" -path ./migrations up

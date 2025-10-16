@@ -2,6 +2,7 @@ package pkg
 
 import (
 	"errors"
+	"log"
 	"net/http"
 	"strconv"
 
@@ -43,10 +44,12 @@ func Validate(metricType, metricName, metricValue string) (int, error) {
 
 func ValidateNameType(metricType, metricName string) (int, error) {
 	if metricName == "" {
+		log.Println("metric name is required")
 		return http.StatusNotFound, errors.New("metric name is required")
 	}
 
 	if metricType != models.Counter && metricType != models.Gauge {
+		log.Println("unknown metric type")
 		return http.StatusNotFound, errors.New("unknown metric type")
 	}
 

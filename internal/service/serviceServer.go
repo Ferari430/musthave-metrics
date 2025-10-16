@@ -16,119 +16,136 @@ import (
 )
 
 type ServiceServer struct {
-	Repo     interfaces.Repository
-	Producer *pkg.Producer
-	ticker   *time.Ticker
-	Consumer *pkg.Consumer
-	Postgres interfaces.Postgres
+	ticker      *time.Ticker
+	Repo        interfaces.Repository
+	FileStorage interfaces.FileStorage
 }
 
-func NewServiceServer(Repo interfaces.Repository, producer *pkg.Producer,
-	ticker *time.Ticker, consumer *pkg.Consumer, postgres interfaces.Postgres) *ServiceServer {
-	return &ServiceServer{Repo: Repo,
-		Producer: producer,
-		ticker:   ticker,
-		Consumer: consumer,
-		Postgres: postgres,
+func NewServiceServer(ticker *time.Ticker, repo interfaces.Repository, fileStorage interfaces.FileStorage) *ServiceServer {
+	return &ServiceServer{
+		ticker:      ticker,
+		Repo:        repo,
+		FileStorage: fileStorage,
 	}
 }
 
 func (s *ServiceServer) UpdateMetric(metric *models.Metrics) (*models.Metrics, error) {
-	UpdatedMetric, err := s.Repo.Update(metric)
-	if err != nil {
 
-		return nil, err
+	switch metric.MType {
+
+	case models.Gauge:
+		s.Repo.UpdateGauge(metric.ID, *metric.Value)
+		return metric, nil
+	case models.Counter:
+
+		newmetric, err := s.Repo.UpdateCounter(metric.ID, *metric.Delta)
+		if err != nil {
+
+			return nil, err
+		}
+		return newmetric, nil
+	default:
+		return nil, errors.New("invalid metric type")
 	}
-
-	return UpdatedMetric, nil
 }
 
-func (s *ServiceServer) GetMetricJSON(metric *models.Metrics) error {
+func (s *ServiceServer) GetMetricJSON(metric *models.Metrics) (*models.Metrics, error) {
 	if metric.Value != nil {
 		fmt.Println("Value =", *metric.Value)
 	} else {
 		fmt.Println("Value is nil")
 	}
 
-	err := s.Repo.MetricJSON(metric)
-	if err != nil {
-		//todo
-		return errors.New("metric not found in database")
-	}
-
-	return nil
-}
-
-func (s *ServiceServer) AddMetrics(metricType, metricName, metricValue string) error {
-
-	switch metricType {
-	//добавить к старому
-	case models.Counter:
-		intMetricValue, err := strconv.ParseInt(metricValue, 10, 64)
-		if err != nil {
-			return errors.New("Cant parse metric value")
-		}
-		oldMetric, ok := s.Repo.Metric(metricName)
-		if ok {
-			*oldMetric.Delta += intMetricValue
-			s.Repo.Add(oldMetric)
-		} else {
-			metric := models.Metrics{
-				ID:    metricName,
-				MType: metricType,
-				Delta: &intMetricValue,
-			}
-			s.Repo.Add(&metric)
-
-		}
-
-	//обновить старое
-	case models.Gauge:
-
-		intMetricValue, err := strconv.ParseFloat(metricValue, 64)
-		if err != nil {
-			return errors.New("Cant parse metric value")
-		}
-
-		oldMetric, ok := s.Repo.Metric(metricName)
-		if ok {
-			*oldMetric.Value = intMetricValue
-			s.Repo.Add(oldMetric)
-		} else {
-			metric := models.Metrics{
-				ID:    metricName,
-				MType: metricType,
-				Value: &intMetricValue,
-			}
-			s.Repo.Add(&metric)
-
-		}
-
-	default:
-		log.Println("Unknown metric type")
-		return errors.New("Unknown metric type")
-	}
-
-	return nil
-}
-
-func (s *ServiceServer) GetMetric(metricType, metricName string) (*models.Metrics, error) {
-
-	statuscode, err := pkg.ValidateNameType(metricType, metricName)
+	//get metric
+	dbMetric, err := s.Repo.Metric(metric.ID)
 	if err != nil {
 		return nil, err
 	}
 
-	logger.Log.Info("cant [logger Zap")
+	return dbMetric, nil
+}
 
+func (s *ServiceServer) AddMetric(metricType, metricName, metricValue string) (*models.Metrics, error) {
+
+	switch metricType {
+	case models.Gauge:
+		ok := s.Repo.CheckExistence(metricName)
+		if !ok {
+			value, err := strconv.ParseFloat(metricValue, 64)
+			if err != nil {
+				return nil, err
+			}
+
+			metric := models.NewGauge(metricName, metricType, &value)
+			err = s.Repo.AddMetric(metric)
+			if err != nil {
+				return nil, err
+			}
+			return metric, nil
+
+		}
+		value, err := strconv.ParseFloat(metricValue, 64)
+		if err != nil {
+			return nil, err
+		}
+		existingMetric, err := s.Repo.UpdateGauge(metricName, value)
+		if err != nil {
+			return nil, err
+		}
+		return existingMetric, nil
+
+	case models.Counter:
+		ok := s.Repo.CheckExistence(metricName)
+		if !ok {
+
+			value, err := strconv.ParseInt(metricValue, 64, 10)
+			if err != nil {
+				return nil, err
+			}
+			metric := models.NewCounter(metricName, metricType, &value)
+			err = s.Repo.AddMetric(metric)
+			if err != nil {
+				return nil, err
+			}
+			return metric, nil
+
+		}
+		value, err := strconv.ParseInt(metricValue, 64, 10)
+		if err != nil {
+			return nil, err
+		}
+		existingMetric, err := s.Repo.UpdateCounter(metricName, value)
+		if err != nil {
+			return nil, err
+		}
+		return existingMetric, nil
+
+	default:
+		return nil, errors.New("invalid metric type")
+	}
+
+}
+
+func (s *ServiceServer) GetMetric(metricType, metricName string) (*models.Metrics, error) {
+	statuscode, err := pkg.ValidateNameType(metricType, metricName)
+	if err != nil {
+		log.Println(statuscode)
+		return nil, err
+	}
+
+	logger.Log.Info("cant [logger Zap")
 	if statuscode != http.StatusOK {
 		return nil, errors.New("invalid metric")
 	}
 
-	existingmetric, ok := s.Repo.Metric(metricName)
-	if !ok {
-		return nil, errors.New("cant find metric in repo")
+	existingmetric, err := s.Repo.Metric(metricName)
+
+	if err != nil {
+		log.Println("cant find metric in storage")
+		return nil, err
 	}
+
+	log.Println(existingmetric, err)
 
 	return existingmetric, nil
 }
@@ -140,7 +157,12 @@ func (s *ServiceServer) AllMetrics() []*models.HTMLMetricData {
 		return HTMLdata
 	}
 
-	metrics := s.Repo.Metrics()
+	metrics, err := s.Repo.GetAll()
+	if err != nil {
+		log.Println(err)
+		return nil
+	}
+
 	if metrics == nil {
 		return HTMLdata
 	}
@@ -185,51 +207,53 @@ func (s *ServiceServer) AllMetrics() []*models.HTMLMetricData {
 	return HTMLdata
 }
 
-func (s *ServiceServer) AddJsonMetricsBatch(metrics []*models.Metrics) error {
-	for _, metric := range metrics {
+// func (s *ServiceServer) AddJsonMetricsBatch(metrics []*models.Metrics) error {
+// 	for _, metric := range metrics {
 
-		switch metric.MType {
-		case "gauge":
-			log.Println("Now metric: ", *metric.Value)
-		case "counter":
-			log.Println("Now metric: ", *metric.Delta)
-		}
+// 		switch metric.MType {
+// 		case "gauge":
+// 			log.Println("Now metric: ", *metric.Value)
+// 		case "counter":
+// 			log.Println("Now metric: ", *metric.Delta)
+// 		}
 
-		if metric.ID == "" {
-			return errors.New("metric name is empty")
-		}
+// 		if metric.ID == "" {
+// 			return errors.New("metric name is empty")
+// 		}
 
-	}
+// 	}
 
-	s.Producer.WriteMetric(metrics)
-	err := s.Repo.MetricJSONBatch(metrics)
-	if err != nil {
-		return errors.New("cant add metric in db")
-	}
+// 	s.Producer.WriteMetric(metrics)
+// 	err := s.Repo.MetricJSONBatch(metrics)
+// 	if err != nil {
+// 		return errors.New("cant add metric in db")
+// 	}
 
-	return nil
-}
+// 	return nil
+// }
 
 func (s *ServiceServer) AddJsonMetricsBatchTicker(metrics []*models.Metrics) error {
 
 	select {
 	case <-s.ticker.C:
-		if err := s.Producer.WriteMetric(metrics); err != nil {
+		log.Println("tick")
+		if err := s.FileStorage.Add(metrics); err != nil {
 			return err
 		}
 		log.Println("Metrics written on file")
 	default:
 	}
-	err := s.Repo.MetricJSONBatch(metrics)
+	err := s.Repo.Add(metrics)
 	if err != nil {
 		return errors.New("cant add metric in db")
 	}
-
+	s.Repo.GetAll()
 	return nil
 }
 
 func (s *ServiceServer) RestoreData() error {
-	metrics, err := s.Consumer.Restore()
+
+	metrics, err := s.FileStorage.Restore()
 	//можно вынести логику с ошибками в pkg
 	if errors.Is(err, io.EOF) {
 		log.Println("file store is empty")
@@ -242,19 +266,19 @@ func (s *ServiceServer) RestoreData() error {
 		return nil
 	}
 
-	err = s.Repo.MetricJSONBatch(metrics)
+	err = s.Repo.Add(metrics)
 	if err != nil {
 		return err
 	}
 	return nil
 }
 
-func (s *ServiceServer) PingPostgres() error {
-	dsn := "postgres://postgres:pass@localhost:5432/postgres"
-	err := s.Postgres.Ping(dsn)
-	if err != nil {
-		return err
-	}
-	log.Println("Postgres is alive")
-	return nil
-}
+// func (s *ServiceServer) PingPostgres() error {
+// 	dsn := "postgres://postgres:pass@localhost:5432/postgres"
+// 	err := s.Repo.Ping()
+// 	if err != nil {
+// 		return err
+// 	}
+// 	log.Println("Postgres is alive")
+// 	return nil
+// }

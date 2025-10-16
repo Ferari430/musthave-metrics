@@ -1,0 +1,11 @@
+database:
+  user: postgres
+  password: postgres
+  name: metrics
+  host: localhost
+  port: 5432
+  sslmode: disable
+
+migrations:
+  path: ./migrations
+

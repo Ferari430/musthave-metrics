@@ -19,6 +19,22 @@ type Metrics struct {
 	Hash  string   `json:"hash,omitempty"`
 }
 
+func NewGauge(ID, MType string, Value *float64) *Metrics {
+	return &Metrics{
+		ID:    ID,
+		MType: MType,
+		Value: Value,
+	}
+}
+
+func NewCounter(ID, MType string, Delta *int64) *Metrics {
+	return &Metrics{
+		ID:    ID,
+		MType: MType,
+		Delta: Delta,
+	}
+}
+
 type MetricsAgent struct {
 	Alloc      uint64 `json:"alloc"`
 	TotalAlloc uint64 `json:"total_alloc"`

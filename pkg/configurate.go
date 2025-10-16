@@ -7,7 +7,7 @@ import (
 	"strconv"
 )
 
-func ConfigurateServer() (string, int, string, bool, string) {
+func ConfigurateServer() (string, int, string, bool, string, bool) {
 
 	var (
 		portServer        string
@@ -15,14 +15,17 @@ func ConfigurateServer() (string, int, string, bool, string) {
 		file_storage_path string
 		restore           bool
 		dsn               string
+		fileStorage       bool
 	)
 
 	// postgres  file  inmemory
 	flag.StringVar(&portServer, "port", ":8080", "port for server")
-	flag.IntVar(&store_interval, "i", 18, "interval for saving metrics in file")
-	flag.StringVar(&file_storage_path, "f", "fileStorage.txt", "file name storage")
+	flag.IntVar(&store_interval, "i", 20, "interval for saving metrics in file")
+	flag.StringVar(&file_storage_path, "f", "fileStorage.json", "file name storage")
 	flag.BoolVar(&restore, "r", true, "enable restore")
-	flag.StringVar(&dsn, "d", "postgres://postgres:pass@localhost:5432/postgres", "dsn for connecting to postgres")
+	flag.StringVar(&dsn, "d", "postgres://postgres:postgres@localhost:5432/postgres", "dsn for connecting to postgres")
+	flag.BoolVar(&fileStorage, "fs", true, "enable fileStorage")
+
 	flag.Parse()
 
 	if envAddres := os.Getenv("PORT"); envAddres != "" {
@@ -58,7 +61,16 @@ func ConfigurateServer() (string, int, string, bool, string) {
 	} else {
 		log.Println("env var DSN not found, using flag or default value:", "localhost:5432")
 	}
-	return portServer, store_interval, file_storage_path, restore, dsn
+
+	fs, ok := os.LookupEnv("FILE_STORAGE")
+	if ok {
+		boolVal, _ := strconv.ParseBool(fs)
+		fileStorage = boolVal
+	} else {
+		log.Println("env var FILE_STORAGE not found, using flag or default value:", fileStorage)
+	}
+
+	return portServer, store_interval, file_storage_path, restore, dsn, fileStorage
 }
 
 func ConfigurateAgent() (string, int64, int64) {
