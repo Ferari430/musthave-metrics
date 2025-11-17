@@ -11,17 +11,23 @@ import (
 
 	models "github.com/Ferari430/musthave-metrics/internal/model"
 	"github.com/Ferari430/musthave-metrics/internal/service/agentService"
+	"github.com/Ferari430/musthave-metrics/pkg/hash"
 )
 
 type AgentSender struct {
-	client     *http.Client
-	service    *agentService.AgentService
-	serverPort string
+	client      *http.Client
+	service     *agentService.AgentService
+	serverPort  string
+	hashingFlag bool
+	key         string
 }
 
-func NewAgentSender(service *agentService.AgentService, client *http.Client, serverPort string) *AgentSender {
+func NewAgentSender(service *agentService.AgentService, client *http.Client, serverPort string,
+	hashingFlag bool, key string) *AgentSender {
 	return &AgentSender{client: client, service: service,
-		serverPort: serverPort,
+		serverPort:  serverPort,
+		hashingFlag: hashingFlag,
+		key:         key,
 	}
 }
 
@@ -223,6 +229,14 @@ func (a *AgentSender) SendJsonCompressedBatch(metrics []*models.Metrics) {
 	req.Header.Set("Content-Type", "application/json")
 
 	req.Header.Set("Content-Encoding", "gzip")
+
+	if a.hashingFlag {
+		h := hash.ComputeHash(jsonValue, a.key)
+
+		req.Header.Set("HashSHA256", h)
+		log.Println("signaturing req, hash = ", h)
+	}
+
 	resp, err := a.client.Do(req)
 	if err != nil {
 		log.Println("ERROR:", err)

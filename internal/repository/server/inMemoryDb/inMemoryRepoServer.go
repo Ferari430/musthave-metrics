@@ -7,16 +7,20 @@ import (
 	"sync"
 
 	models "github.com/Ferari430/musthave-metrics/internal/model"
+	"github.com/Ferari430/musthave-metrics/pkg/logger"
 )
 
 type InMemoryRepo struct {
 	memStorage map[string]*models.Metrics
 	mu         sync.RWMutex
+	logger     *logger.Logger
 }
 
-func NewInMemoryStorage() *InMemoryRepo {
+func NewInMemoryStorage(logger *logger.Logger) *InMemoryRepo {
 	storage := make(map[string]*models.Metrics)
-	return &InMemoryRepo{memStorage: storage, mu: sync.RWMutex{}}
+	return &InMemoryRepo{memStorage: storage, mu: sync.RWMutex{},
+		logger: logger,
+	}
 }
 
 func (r *InMemoryRepo) GetAll() ([]*models.Metrics, error) {

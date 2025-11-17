@@ -18,7 +18,7 @@ func (g *gzipResponseWriter) Write(p []byte) (int, error) {
 
 func GzipMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-
+		defer r.Body.Close()
 		// ---------- ВХОДЯЩИЙ ЗАПРОС ----------
 		if strings.Contains(r.Header.Get("Content-Encoding"), "gzip") {
 			gzr, err := gzip.NewReader(r.Body)

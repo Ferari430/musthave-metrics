@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"strconv"
 	"time"
@@ -13,52 +12,94 @@ import (
 	models "github.com/Ferari430/musthave-metrics/internal/model"
 	"github.com/Ferari430/musthave-metrics/pkg"
 	"github.com/Ferari430/musthave-metrics/pkg/logger"
+	"go.uber.org/zap"
 )
 
 type ServiceServer struct {
 	ticker      *time.Ticker
 	Repo        interfaces.Repository
 	FileStorage interfaces.FileStorage
+	logger      *logger.Logger
 }
 
-func NewServiceServer(ticker *time.Ticker, repo interfaces.Repository, fileStorage interfaces.FileStorage) *ServiceServer {
+func NewServiceServer(ticker *time.Ticker, repo interfaces.Repository,
+	fileStorage interfaces.FileStorage, logger *logger.Logger,
+) *ServiceServer {
 	return &ServiceServer{
 		ticker:      ticker,
 		Repo:        repo,
 		FileStorage: fileStorage,
+		logger:      logger,
 	}
 }
 
 func (s *ServiceServer) UpdateMetric(metric *models.Metrics) (*models.Metrics, error) {
+	op := "Service.UpdateMetric"
+
+	s.logger.Debug("incoming metric",
+		zap.String("operation", op),
+		zap.Any("metric", metric),
+	)
 
 	switch metric.MType {
-
 	case models.Gauge:
 		s.Repo.UpdateGauge(metric.ID, *metric.Value)
-		return metric, nil
-	case models.Counter:
 
-		newmetric, err := s.Repo.UpdateCounter(metric.ID, *metric.Delta)
+		s.logger.Debug("gauge updated",
+			zap.String("operation", op),
+			zap.String("metric", metric.ID),
+			zap.Float64("value", *metric.Value),
+		)
+
+		return metric, nil
+
+	case models.Counter:
+		newMetric, err := s.Repo.UpdateCounter(metric.ID, *metric.Delta)
 		if err != nil {
+
+			s.logger.Error("failed to update counter",
+				zap.String("operation", op),
+				zap.String("metric", metric.ID),
+				zap.Error(err),
+			)
 
 			return nil, err
 		}
-		return newmetric, nil
+
+		s.logger.Debug("counter updated",
+			zap.String("operation", op),
+			zap.String("metric", metric.ID),
+			zap.Int64("delta", *metric.Delta),
+		)
+
+		return newMetric, nil
+
 	default:
+		s.logger.Warn("invalid metric type",
+			zap.String("operation", op),
+			zap.String("metric", metric.ID),
+			zap.String("type", metric.MType),
+		)
 		return nil, errors.New("invalid metric type")
 	}
 }
 
 func (s *ServiceServer) GetMetricJSON(metric *models.Metrics) (*models.Metrics, error) {
-	if metric.Value != nil {
-		fmt.Println("Value =", *metric.Value)
-	} else {
-		fmt.Println("Value is nil")
-	}
+	op := "Service.GetMetricJSON"
 
-	//get metric
+	s.logger.Debug("get metric JSON",
+		zap.String("operation", op),
+		zap.String("metric", metric.ID),
+		zap.String("type", metric.MType),
+	)
+
 	dbMetric, err := s.Repo.Metric(metric.ID)
 	if err != nil {
+		s.logger.Error("metric not found",
+			zap.String("operation", op),
+			zap.String("metric", metric.ID),
+			zap.Error(err),
+		)
 		return nil, err
 	}
 
@@ -66,100 +107,168 @@ func (s *ServiceServer) GetMetricJSON(metric *models.Metrics) (*models.Metrics, 
 }
 
 func (s *ServiceServer) AddMetric(metricType, metricName, metricValue string) (*models.Metrics, error) {
+	op := "Service.AddMetric"
+
+	s.logger.Debug("adding metric",
+		zap.String("operation", op),
+		zap.String("type", metricType),
+		zap.String("name", metricName),
+		zap.String("value", metricValue),
+	)
 
 	switch metricType {
+
 	case models.Gauge:
 		ok := s.Repo.CheckExistence(metricName)
-		if !ok {
-			value, err := strconv.ParseFloat(metricValue, 64)
-			if err != nil {
-				return nil, err
-			}
+		value, err := strconv.ParseFloat(metricValue, 64)
+		if err != nil {
+			s.logger.Error("failed to parse float gauge",
+				zap.String("operation", op),
+				zap.String("name", metricName),
+				zap.String("value", metricValue),
+				zap.Error(err),
+			)
+			return nil, err
+		}
 
+		if !ok {
 			metric := models.NewGauge(metricName, metricType, &value)
 			err = s.Repo.AddMetric(metric)
 			if err != nil {
+				s.logger.Error("failed to add gauge",
+					zap.String("operation", op),
+					zap.String("metric", metricName),
+					zap.Error(err),
+				)
 				return nil, err
 			}
-			return metric, nil
 
+			s.logger.Debug("gauge created",
+				zap.String("operation", op),
+				zap.String("metric", metricName),
+				zap.Float64("value", value),
+			)
+			return metric, nil
 		}
-		value, err := strconv.ParseFloat(metricValue, 64)
+
+		existing, err := s.Repo.UpdateGauge(metricName, value)
 		if err != nil {
+			s.logger.Error("failed to update existing gauge",
+				zap.String("operation", op),
+				zap.String("metric", metricName),
+				zap.Error(err),
+			)
 			return nil, err
 		}
-		existingMetric, err := s.Repo.UpdateGauge(metricName, value)
-		if err != nil {
-			return nil, err
-		}
-		return existingMetric, nil
+		return existing, nil
 
 	case models.Counter:
 		ok := s.Repo.CheckExistence(metricName)
-		if !ok {
+		value, err := strconv.ParseInt(metricValue, 64, 10)
+		if err != nil {
+			s.logger.Error("failed to parse counter int",
+				zap.String("operation", op),
+				zap.String("name", metricName),
+				zap.String("value", metricValue),
+				zap.Error(err),
+			)
+			return nil, err
+		}
 
-			value, err := strconv.ParseInt(metricValue, 64, 10)
-			if err != nil {
-				return nil, err
-			}
+		if !ok {
 			metric := models.NewCounter(metricName, metricType, &value)
 			err = s.Repo.AddMetric(metric)
 			if err != nil {
+				s.logger.Error("failed to add counter",
+					zap.String("operation", op),
+					zap.String("metric", metricName),
+					zap.Error(err),
+				)
 				return nil, err
 			}
 			return metric, nil
+		}
 
-		}
-		value, err := strconv.ParseInt(metricValue, 64, 10)
-		if err != nil {
-			return nil, err
-		}
 		existingMetric, err := s.Repo.UpdateCounter(metricName, value)
 		if err != nil {
+			s.logger.Error("failed to update counter",
+				zap.String("operation", op),
+				zap.String("metric", metricName),
+				zap.Error(err),
+			)
 			return nil, err
 		}
 		return existingMetric, nil
 
 	default:
+		s.logger.Warn("invalid metric type",
+			zap.String("operation", op),
+			zap.String("metricType", metricType),
+		)
 		return nil, errors.New("invalid metric type")
 	}
-
 }
 
 func (s *ServiceServer) GetMetric(metricType, metricName string) (*models.Metrics, error) {
+	op := "Service.GetMetric"
+
+	s.logger.Debug("get metric",
+		zap.String("operation", op),
+		zap.String("type", metricType),
+		zap.String("name", metricName),
+	)
+
 	statuscode, err := pkg.ValidateNameType(metricType, metricName)
 	if err != nil {
-		log.Println(statuscode)
+		s.logger.Warn("validation failed",
+			zap.String("operation", op),
+			zap.Int("statuscode", statuscode),
+			zap.Error(err),
+		)
 		return nil, err
 	}
 
-	logger.Log.Info("cant [logger Zap")
 	if statuscode != http.StatusOK {
 		return nil, errors.New("invalid metric")
 	}
 
-	existingmetric, err := s.Repo.Metric(metricName)
-
+	existingMetric, err := s.Repo.Metric(metricName)
 	if err != nil {
-		log.Println("cant find metric in storage")
+		s.logger.Error("metric not found",
+			zap.String("operation", op),
+			zap.String("metric", metricName),
+			zap.Error(err),
+		)
 		return nil, err
 	}
 
-	log.Println(existingmetric, err)
+	s.logger.Debug("metric fetched successfully",
+		zap.String("operation", op),
+		zap.Any("metric", existingMetric),
+	)
 
-	return existingmetric, nil
+	return existingMetric, nil
 }
 
 func (s *ServiceServer) AllMetrics() []*models.HTMLMetricData {
+	op := "Service.AllMetrics"
+
 	HTMLdata := make([]*models.HTMLMetricData, 0, 10)
 	if s.Repo == nil {
-		log.Println("Repo is nil")
+
+		s.logger.Error("repo is nil",
+			zap.String("operation", op),
+		)
+
 		return HTMLdata
 	}
 
 	metrics, err := s.Repo.GetAll()
 	if err != nil {
-		log.Println(err)
+		s.logger.Error("failed to fetch metrics",
+			zap.String("operation", op),
+			zap.Error(err),
+		)
 		return nil
 	}
 
@@ -175,7 +284,10 @@ func (s *ServiceServer) AllMetrics() []*models.HTMLMetricData {
 		switch metric.MType {
 		case models.Counter:
 			if metric.Delta == nil {
-				log.Printf("counter %s is nil", metric.ID)
+				s.logger.Warn("counter value is nil",
+					zap.String("operation", op),
+					zap.String("metric", metric.ID),
+				)
 				continue
 			}
 			value := fmt.Sprintf("%v", *metric.Delta)
@@ -184,9 +296,13 @@ func (s *ServiceServer) AllMetrics() []*models.HTMLMetricData {
 				Value: value,
 				Type:  metric.MType,
 			})
+
 		case models.Gauge:
 			if metric.Value == nil {
-				log.Printf("gauge %s is nil", metric.ID)
+				s.logger.Warn("gauge value is nil",
+					zap.String("operation", op),
+					zap.String("metric", metric.ID),
+				)
 				continue
 			}
 			value := fmt.Sprintf("%v", *metric.Value)
@@ -195,90 +311,99 @@ func (s *ServiceServer) AllMetrics() []*models.HTMLMetricData {
 				Value: value,
 				Type:  metric.MType,
 			})
+
 		default:
-			log.Printf("[AllMetrics SERVICE] unknown type for metric %s", metric.ID)
+			s.logger.Warn("unknown metric type",
+				zap.String("operation", op),
+				zap.String("metric", metric.ID),
+			)
 		}
 	}
 
 	for _, m := range HTMLdata {
-		log.Printf("<li>%s (%s) = %s</li>\n", m.Name, m.Type, m.Value)
+		s.logger.Debug("html metric",
+			zap.String("operation", op),
+			zap.String("name", m.Name),
+			zap.String("type", m.Type),
+			zap.String("value", m.Value),
+		)
 	}
 
 	return HTMLdata
 }
 
-// func (s *ServiceServer) AddJsonMetricsBatch(metrics []*models.Metrics) error {
-// 	for _, metric := range metrics {
-
-// 		switch metric.MType {
-// 		case "gauge":
-// 			log.Println("Now metric: ", *metric.Value)
-// 		case "counter":
-// 			log.Println("Now metric: ", *metric.Delta)
-// 		}
-
-// 		if metric.ID == "" {
-// 			return errors.New("metric name is empty")
-// 		}
-
-// 	}
-
-// 	s.Producer.WriteMetric(metrics)
-// 	err := s.Repo.MetricJSONBatch(metrics)
-// 	if err != nil {
-// 		return errors.New("cant add metric in db")
-// 	}
-
-// 	return nil
-// }
-
 func (s *ServiceServer) AddJsonMetricsBatchTicker(metrics []*models.Metrics) error {
+	op := "Service.AddJsonMetricsBatchTicker"
 
 	select {
 	case <-s.ticker.C:
-		log.Println("tick")
+		s.logger.Debug("ticker tick",
+			zap.String("operation", op),
+		)
+
 		if err := s.FileStorage.Add(metrics); err != nil {
+			s.logger.Error("file write failed",
+				zap.String("operation", op),
+				zap.Error(err),
+			)
 			return err
 		}
-		log.Println("Metrics written on file")
+
+		s.logger.Debug("metrics written to file",
+			zap.String("operation", op),
+		)
+
 	default:
 	}
+
 	err := s.Repo.Add(metrics)
 	if err != nil {
+		s.logger.Error("failed to add metrics to db",
+			zap.String("operation", op),
+			zap.Error(err),
+		)
 		return errors.New("cant add metric in db")
 	}
+
+	s.logger.Debug("db metrics added successfully",
+		zap.String("operation", op),
+	)
+
 	s.Repo.GetAll()
 	return nil
 }
 
 func (s *ServiceServer) RestoreData() error {
+	op := "Service.RestoreData"
 
 	metrics, err := s.FileStorage.Restore()
-	//можно вынести логику с ошибками в pkg
+
 	if errors.Is(err, io.EOF) {
-		log.Println("file store is empty")
+		s.logger.Info("file storage empty",
+			zap.String("operation", op),
+		)
 	}
+
 	if err != nil {
+		s.logger.Error("restore failed",
+			zap.String("operation", op),
+			zap.Error(err),
+		)
 		return err
 	}
+
 	if metrics == nil {
-		log.Println("no metrics to restore")
+		s.logger.Info("no metrics to restore",
+			zap.String("operation", op),
+		)
 		return nil
 	}
 
-	err = s.Repo.Add(metrics)
-	if err != nil {
-		return err
-	}
+	s.logger.Debug("restored metrics from file",
+		zap.String("operation", op),
+		zap.Int("count", len(metrics)),
+	)
+
+	// Возможное восстановление в БД (в ТЗ отключено)
 	return nil
 }
-
-// func (s *ServiceServer) PingPostgres() error {
-// 	dsn := "postgres://postgres:pass@localhost:5432/postgres"
-// 	err := s.Repo.Ping()
-// 	if err != nil {
-// 		return err
-// 	}
-// 	log.Println("Postgres is alive")
-// 	return nil
-// }

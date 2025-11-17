@@ -16,12 +16,12 @@ import (
 
 // chi
 func main() {
-	port, store_interval, file_storage_path, restore, connectionString, file_storage := pkg.ConfigurateServer()
+	port, store_interval, file_storage_path, restore, connectionString, file_storage, hashing, key := pkg.ConfigurateServer()
 
 	log.Printf("Server started on port %v", port)
 	log.Printf("store_interval= %v, file_storage_path= %v, restore= %v", store_interval, file_storage_path, restore)
 
-	err := app(port, file_storage_path, store_interval, restore, connectionString, file_storage)
+	err := app(port, file_storage_path, store_interval, restore, connectionString, file_storage, hashing, key)
 	if err != nil {
 		log.Fatalf("Cant run server on port %v. Error:%v", port, err)
 		return
@@ -29,21 +29,24 @@ func main() {
 
 }
 
-func app(port, fPath string, store_interval int, restore bool, connectionString string, filestorage bool) error {
+func app(port, fPath string, store_interval int, restore bool, connectionString string, filestorage, hashingFlag bool, key string) error {
 	router := chi.NewRouter()
 	//logger
-	err := logger.InitLogger("debug")
+	logger, err := logger.InitLogger("debug")
 	if err != nil {
 		return err
 	}
 
-	repo, file := repository.InitRepository(connectionString, fPath, filestorage)
+	repo, file := repository.InitRepository(connectionString, fPath, filestorage, logger)
+
 	//ticker
 	ticker := time.NewTicker(time.Second * time.Duration(store_interval))
 
-	serviceServer := service.NewServiceServer(ticker, repo, file)
-	newServerHandlerDeps := handler.ServerHandlerDeps{Service: serviceServer}
-	handler.NewServerHandler(router, newServerHandlerDeps)
+	serviceServer := service.NewServiceServer(ticker, repo, file, logger)
+
+	cfg := handler.HandlerConfig{Hashing: hashingFlag, Key: key}
+	newServerHandlerDeps := handler.ServerHandlerDeps{Service: serviceServer, Config: cfg}
+	handler.NewServerHandler(router, newServerHandlerDeps, logger)
 
 	if restore {
 		serviceServer.RestoreData()

@@ -7,7 +7,39 @@ import (
 	"go.uber.org/zap"
 )
 
-var Log *zap.Logger = zap.NewNop()
+type Logger struct {
+	*zap.Logger // классический zap
+	ReqLogger   // zap для http
+}
+
+func InitLogger(level string) (*Logger, error) {
+
+	var log *zap.Logger = zap.NewNop()
+
+	lvl, err := zap.ParseAtomicLevel(level)
+	if err != nil {
+		return nil, err
+	}
+
+	cfg := zap.NewProductionConfig()
+	cfg.Level = lvl
+
+	zl, err := cfg.Build()
+	if err != nil {
+		return nil, err
+	}
+	// singltone
+	log = zl
+
+	Logger := &Logger{
+		Logger: log,
+		ReqLogger: ReqLogger{
+			logger: log,
+		},
+	}
+
+	return Logger, nil
+}
 
 type responseData struct {
 	statuscode int
@@ -32,27 +64,11 @@ func (l *loggingResponseWriter) WriteHeader(statuscode int) {
 
 }
 
-func InitLogger(level string) error {
-
-	lvl, err := zap.ParseAtomicLevel(level)
-	if err != nil {
-		return err
-	}
-
-	cfg := zap.NewProductionConfig()
-	cfg.Level = lvl
-
-	zl, err := cfg.Build()
-	if err != nil {
-		return err
-	}
-	// singltone
-	Log = zl
-
-	return nil
+type ReqLogger struct {
+	logger *zap.Logger
 }
 
-func RequestLogger(h http.HandlerFunc) http.HandlerFunc {
+func (Rl *ReqLogger) RequestLogger(h http.HandlerFunc) http.HandlerFunc {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 
 		start := time.Now()
@@ -69,7 +85,7 @@ func RequestLogger(h http.HandlerFunc) http.HandlerFunc {
 
 		duration := time.Since(start)
 
-		Log.Info("got incoming http request",
+		Rl.logger.Info("got incoming http request",
 			zap.String("method", r.Method),
 			zap.String("path", r.URL.Path),
 			zap.Duration("duration", duration),

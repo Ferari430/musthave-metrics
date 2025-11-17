@@ -13,7 +13,7 @@ import (
 )
 
 func main() {
-	portServer, pollInterval, reportInterval := pkg.ConfigurateAgent()
+	portServer, pollInterval, reportInterval, hashingFlag, key := pkg.ConfigurateAgent()
 	db := repositoryAgent.NewInMemoryAgentDB()
 	client := &http.Client{Timeout: 5 * time.Second}
 	// service := agentService.NewAgentService(db)
@@ -26,7 +26,7 @@ func main() {
 
 	wg.Add(2)
 	go agentService.StartTicker(*t1, *t2, &m, &wg)
-	sender := handler.NewAgentSender(agentService, client, portServer)
+	sender := handler.NewAgentSender(agentService, client, portServer, hashingFlag, key)
 	go sender.Consumer(&wg)
 	wg.Wait()
 

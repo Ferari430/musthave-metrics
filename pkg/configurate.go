@@ -7,7 +7,7 @@ import (
 	"strconv"
 )
 
-func ConfigurateServer() (string, int, string, bool, string, bool) {
+func ConfigurateServer() (string, int, string, bool, string, bool, bool, string) {
 
 	var (
 		portServer        string
@@ -16,6 +16,8 @@ func ConfigurateServer() (string, int, string, bool, string, bool) {
 		restore           bool
 		dsn               string
 		fileStorage       bool
+		enablehashing     bool
+		key               string
 	)
 
 	// postgres  file  inmemory
@@ -23,8 +25,10 @@ func ConfigurateServer() (string, int, string, bool, string, bool) {
 	flag.IntVar(&store_interval, "i", 20, "interval for saving metrics in file")
 	flag.StringVar(&file_storage_path, "f", "fileStorage.json", "file name storage")
 	flag.BoolVar(&restore, "r", true, "enable restore")
-	flag.StringVar(&dsn, "d", "postgres://postgres:postgres@localhost:5432/postgres", "dsn for connecting to postgres")
+	flag.StringVar(&dsn, "d", "postgresql://postgres:postgres@localhost:5432/metrics?sslmode=disable", "dsn for connecting to postgres")
 	flag.BoolVar(&fileStorage, "fs", true, "enable fileStorage")
+	flag.BoolVar(&enablehashing, "es", false, "enable hashing")
+	flag.StringVar(&key, "key", "secret", "secret for hmac")
 
 	flag.Parse()
 
@@ -70,21 +74,26 @@ func ConfigurateServer() (string, int, string, bool, string, bool) {
 		log.Println("env var FILE_STORAGE not found, using flag or default value:", fileStorage)
 	}
 
-	return portServer, store_interval, file_storage_path, restore, dsn, fileStorage
+	log.Println("using flag or default value for recieving signature data", enablehashing)
+
+	return portServer, store_interval, file_storage_path, restore, dsn, fileStorage, enablehashing, key
 }
 
-func ConfigurateAgent() (string, int64, int64) {
+func ConfigurateAgent() (string, int64, int64, bool, string) {
 
 	var (
 		portServer     string
 		pollInterval   int64
 		reportInterval int64
+		enablehashing  bool
+		key            string
 	)
 
-	flag.Int64Var(&pollInterval, "pollInterval", 3, "PollIntervalValue in sec")
-	flag.Int64Var(&reportInterval, "reportInterval", 5, "ReportIntervalValue in sec")
+	flag.Int64Var(&pollInterval, "pollInterval", 2, "PollIntervalValue in sec")
+	flag.Int64Var(&reportInterval, "reportInterval", 3, "ReportIntervalValue in sec")
 	flag.StringVar(&portServer, "port", "8080", "port for server")
-
+	flag.BoolVar(&enablehashing, "es", false, "enable hashing, default:false")
+	flag.StringVar(&key, "key", "secret", "hashing key")
 	flag.Parse()
 
 	strPollInterval := os.Getenv("pollInterval")
@@ -108,5 +117,5 @@ func ConfigurateAgent() (string, int64, int64) {
 	log.Printf("pollInterval: %v", pollInterval)
 	log.Printf("reportInterval: %v", reportInterval)
 	log.Printf("portServer: %v", portServer)
-	return portServer, pollInterval, reportInterval
+	return portServer, pollInterval, reportInterval, enablehashing, key
 }

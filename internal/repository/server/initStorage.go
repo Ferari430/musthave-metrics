@@ -7,6 +7,7 @@ import (
 	fileStorage "github.com/Ferari430/musthave-metrics/internal/repository/server/file"
 	inMemoryStorage "github.com/Ferari430/musthave-metrics/internal/repository/server/inMemoryDb"
 	postgresStorage "github.com/Ferari430/musthave-metrics/internal/repository/server/postgres"
+	"github.com/Ferari430/musthave-metrics/pkg/logger"
 
 	"github.com/Ferari430/musthave-metrics/pkg"
 )
@@ -19,7 +20,7 @@ import (
 // возвращать наполненный интерфейс который имплементят все виды хранилищ
 // todo: добавить флаг для fileStorage где проверять включена ли возможность записывать данные в файл
 
-func InitRepository(dsn, file_storage_path string, fileStorageFlag bool) (interfaces.Repository, interfaces.FileStorage) {
+func InitRepository(dsn, file_storage_path string, fileStorageFlag bool, logger *logger.Logger) (interfaces.Repository, interfaces.FileStorage) {
 	var filestorage interfaces.FileStorage
 	if fileStorageFlag {
 		//init file
@@ -39,13 +40,13 @@ func InitRepository(dsn, file_storage_path string, fileStorageFlag bool) (interf
 		pg, err := postgresStorage.Open(dsn)
 		if err == nil {
 
-			db := postgresStorage.NewPostgresRepository(pg)
+			db := postgresStorage.NewPostgresRepository(pg, logger)
 			log.Println("postgres connection initialaized")
 			return db, filestorage
 		}
 	}
 
-	db := inMemoryStorage.NewInMemoryStorage()
+	db := inMemoryStorage.NewInMemoryStorage(logger)
 	log.Println("inMemoryStorage initialaized")
 	return db, filestorage
 }

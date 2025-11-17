@@ -2,18 +2,25 @@ package postgresStorage
 
 import (
 	"database/sql"
+	"errors"
+	"fmt"
 	"log"
+	"strings"
 
 	models "github.com/Ferari430/musthave-metrics/internal/model"
+	"github.com/Ferari430/musthave-metrics/pkg/logger"
 	_ "github.com/jackc/pgx/v5/stdlib"
+	"go.uber.org/zap"
 )
 
 type PostgresRepository struct {
-	DB *sql.DB
+	logger *logger.Logger
+	DB     *sql.DB
 }
 
-func NewPostgresRepository(db *sql.DB) *PostgresRepository {
-	return &PostgresRepository{DB: db}
+func NewPostgresRepository(db *sql.DB, logger *logger.Logger) *PostgresRepository {
+	return &PostgresRepository{DB: db,
+		logger: logger}
 }
 
 func Open(connectionString string) (*sql.DB, error) {
@@ -21,6 +28,7 @@ func Open(connectionString string) (*sql.DB, error) {
 	db, err := sql.Open("pgx", connectionString)
 	if err != nil {
 		log.Fatal("cant init postgres pool")
+
 	}
 
 	err = db.Ping()
@@ -32,10 +40,12 @@ func Open(connectionString string) (*sql.DB, error) {
 
 func (r *PostgresRepository) Ping() error {
 	connectionString := "postgres://postgres:postgres@localhost:5432/postgres"
-
+	op := "Postrges.Ping"
 	db, err := sql.Open("pgx", connectionString)
 	if err != nil {
+		r.logger.Debug("cant connect tp db", zap.String("operation", op), zap.Error(err))
 		log.Fatal("cant connect to db")
+
 	}
 
 	err = db.Ping()
@@ -43,12 +53,56 @@ func (r *PostgresRepository) Ping() error {
 		return err
 	}
 
+	r.logger.Debug("connection successes", zap.String("operation", op), zap.Error(nil))
+
 	return nil
 }
 
 func (r *PostgresRepository) Add(metrics []*models.Metrics) error {
-	log.Println("add postgres")
-	return nil
+	op := "Postgres.Add"
+
+	if len(metrics) == 0 {
+		r.logger.Debug("recieved metrics with len=0", zap.String("operation", op), zap.Error(errors.New("zero len")))
+		return nil
+	}
+
+	placeholders := make([]string, 0, len(metrics))
+	args := make([]interface{}, 0, len(metrics)*5)
+
+	for i, m := range metrics {
+		placeholders = append(placeholders,
+			fmt.Sprintf("($%d, $%d, $%d, $%d, $%d)", i*5+1, i*5+2, i*5+3, i*5+4, i*5+5))
+		args = append(args, m.ID, m.MType, m.Delta, m.Value, m.Hash)
+	}
+
+	query := fmt.Sprintf(`
+        INSERT INTO metrics (id, mtype, delta, value, hash) 
+        VALUES %s
+        ON CONFLICT (id) DO UPDATE SET
+            delta = CASE 
+                WHEN excluded.mtype = 'Counter' THEN metrics.delta + excluded.delta
+                ELSE excluded.delta
+            END,
+            value = excluded.value,
+            hash = excluded.hash
+        WHERE metrics.mtype = excluded.mtype`,
+		strings.Join(placeholders, ", "))
+
+	_, err := r.DB.Exec(query, args...)
+
+	result, err := r.DB.Exec(query, args...)
+	if err != nil {
+
+		r.logger.Debug("error during insert", zap.String("operation", op), zap.Error(err))
+
+		return err
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+
+	r.logger.Debug("Insert successful", zap.String("operation", op), zap.Int64("rows_affected", rowsAffected))
+
+	return err
 }
 
 func (r *PostgresRepository) GetAll() ([]*models.Metrics, error) {

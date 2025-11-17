@@ -1,1 +1,1 @@
-[{"id":"TotalAlloc","type":"gauge","value":6484832},{"id":"HeapSys","type":"gauge","value":7897088},{"id":"Frees","type":"counter","delta":902},{"id":"PollCounter","type":"counter","delta":13}]
+[{"id":"TotalAlloc","type":"gauge","value":2210392},{"id":"HeapSys","type":"gauge","value":3833856},{"id":"Frees","type":"counter","delta":65},{"id":"PollCounter","type":"counter","delta":4}]
