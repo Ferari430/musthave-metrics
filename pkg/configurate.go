@@ -8,75 +8,53 @@ import (
 )
 
 func ConfigurateServer() (string, int, string, bool, string, bool, bool, string) {
-
 	var (
-		portServer        string
-		store_interval    int
-		file_storage_path string
-		restore           bool
-		dsn               string
-		fileStorage       bool
-		enablehashing     bool
-		key               string
+		portServer      string
+		storeInterval   int
+		fileStoragePath string
+		restore         bool
+		dsn             string
+		fileStorage     bool
+		enableHashing   bool
+		key             string
 	)
 
-	// postgres  file  inmemory
 	flag.StringVar(&portServer, "port", ":8080", "port for server")
-	flag.IntVar(&store_interval, "i", 20, "interval for saving metrics in file")
-	flag.StringVar(&file_storage_path, "f", "fileStorage.json", "file name storage")
+	flag.IntVar(&storeInterval, "i", 20, "interval for saving metrics in file")
+	flag.StringVar(&fileStoragePath, "f", "fileStorage.json", "file name storage")
 	flag.BoolVar(&restore, "r", true, "enable restore")
-	flag.StringVar(&dsn, "d", "postgresql://postgres:postgres@localhost:5432/metrics?sslmode=disable", "dsn for connecting to postgres")
+	flag.StringVar(&dsn, "d",
+		"postgresql://postgres:postgres@localhost:5432/metrics?sslmode=disable",
+		"dsn for connecting to postgres")
 	flag.BoolVar(&fileStorage, "fs", true, "enable fileStorage")
-	flag.BoolVar(&enablehashing, "es", false, "enable hashing")
+	flag.BoolVar(&enableHashing, "es", false, "enable hashing")
 	flag.StringVar(&key, "key", "secret", "secret for hmac")
 
 	flag.Parse()
 
-	if envAddres := os.Getenv("PORT"); envAddres != "" {
-		portServer = envAddres
+	if v := os.Getenv("PORT"); v != "" {
+		portServer = v
+	}
+	if v := os.Getenv("STORE_INTERVAL"); v != "" {
+		storeInterval, _ = strconv.Atoi(v)
+	}
+	if v := os.Getenv("FILE_STORAGE_PATH"); v != "" {
+		fileStoragePath = v
+	}
+	if v := os.Getenv("RESTORE"); v != "" {
+		restore, _ = strconv.ParseBool(v)
+	}
+	if v := os.Getenv("DSN"); v != "" {
+		dsn = v
+	}
+	if v := os.Getenv("FILE_STORAGE"); v != "" {
+		fileStorage, _ = strconv.ParseBool(v)
+	}
+	if v := os.Getenv("ENABLE_HASHING"); v != "" {
+		enableHashing, _ = strconv.ParseBool(v)
 	}
 
-	stringStore_interval, ok := os.LookupEnv("STORE_INTERVAL")
-	if ok {
-		intVal, _ := strconv.Atoi(stringStore_interval)
-		store_interval = intVal
-	} else {
-		log.Println("env var STORE_INTERVAL not found, using flag or default value:", store_interval)
-	}
-
-	sPath, ok := os.LookupEnv("FILE_STORAGE_PATH")
-	if ok {
-		file_storage_path = sPath
-	} else {
-		log.Println("env var FILE_STORAGE_PATH not found, using flag or default value:", file_storage_path)
-	}
-
-	r, ok := os.LookupEnv("RESTORE")
-	if ok {
-		boolVal, _ := strconv.ParseBool(r)
-		restore = boolVal
-	} else {
-		log.Println("env var RESTORE not found, using flag or default value:", restore)
-	}
-
-	d, ok := os.LookupEnv("DSN")
-	if ok {
-		dsn = d
-	} else {
-		log.Println("env var DSN not found, using flag or default value:", "localhost:5432")
-	}
-
-	fs, ok := os.LookupEnv("FILE_STORAGE")
-	if ok {
-		boolVal, _ := strconv.ParseBool(fs)
-		fileStorage = boolVal
-	} else {
-		log.Println("env var FILE_STORAGE not found, using flag or default value:", fileStorage)
-	}
-
-	log.Println("using flag or default value for recieving signature data", enablehashing)
-
-	return portServer, store_interval, file_storage_path, restore, dsn, fileStorage, enablehashing, key
+	return portServer, storeInterval, fileStoragePath, restore, dsn, fileStorage, enableHashing, key
 }
 
 func ConfigurateAgent() (string, int64, int64, bool, string) {
