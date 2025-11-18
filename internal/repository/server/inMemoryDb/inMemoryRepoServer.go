@@ -8,6 +8,7 @@ import (
 
 	models "github.com/Ferari430/musthave-metrics/internal/model"
 	"github.com/Ferari430/musthave-metrics/pkg/logger"
+	"go.uber.org/zap"
 )
 
 type InMemoryRepo struct {
@@ -24,12 +25,14 @@ func NewInMemoryStorage(logger *logger.Logger) *InMemoryRepo {
 }
 
 func (r *InMemoryRepo) GetAll() ([]*models.Metrics, error) {
+	op := "InMemoryRepo.GetAll"
+
 	log.Println("--- Current state of metrics ---")
 	var metrics []*models.Metrics
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	if len(r.memStorage) == 0 {
-		log.Println("Storage is empty.")
+		r.logger.Debug("inMemory storage is empty", zap.String("operation", op), zap.Error(errors.New("storage is empty")))
 		return nil, errors.New("storage is empty")
 	}
 
@@ -68,7 +71,6 @@ func (r *InMemoryRepo) Add(metrics []*models.Metrics) error {
 				}
 			}
 		} else {
-			// Если метрика новая, добавляем её в хранилище
 			r.memStorage[metric.ID] = metric
 		}
 	}
@@ -80,71 +82,124 @@ func (r *InMemoryRepo) Ping() error {
 }
 
 func (r *InMemoryRepo) UpdateGauge(name string, value float64) (*models.Metrics, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
+	op := "InMemoryRepo.UpdateGauge"
 
-	_, ok := r.memStorage[name]
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	metric, ok := r.memStorage[name]
 	if !ok {
+		r.logger.Warn("gauge not found",
+			zap.String("operation", op),
+			zap.String("metric", name),
+		)
 		return nil, errors.New("metric not found")
 	}
-	oldValue := r.memStorage[name].Value
-	r.memStorage[name].Value = &value
 
-	log.Printf("gauge %s updated from %v to %v\n", name, oldValue, r.memStorage[name].Value)
+	oldValue := metric.Value
+	metric.Value = &value
 
-	return r.memStorage[name], nil
+	r.logger.Debug("gauge updated",
+		zap.String("operation", op),
+		zap.String("metric", name),
+		zap.Any("old_value", oldValue),
+		zap.Float64("new_value", value),
+	)
+
+	return metric, nil
 }
 
 func (r *InMemoryRepo) UpdateCounter(name string, value int64) (*models.Metrics, error) {
+	op := "InMemoryRepo.UpdateCounter"
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	_, ok := r.memStorage[name]
+
+	metric, ok := r.memStorage[name]
 	if !ok {
+		r.logger.Warn("counter not found",
+			zap.String("operation", op),
+			zap.String("metric", name),
+		)
 		return nil, errors.New("metric not fount")
 	}
 
-	oldValue := *r.memStorage[name].Delta
-	*r.memStorage[name].Delta += value
+	oldValue := *metric.Delta
+	*metric.Delta += value
 
-	log.Printf("counter %s updated from %v to %v\n", name, oldValue, *r.memStorage[name].Delta)
+	r.logger.Debug("counter updated",
+		zap.String("operation", op),
+		zap.String("metric", name),
+		zap.Int64("old_value", oldValue),
+		zap.Int64("new_value", *metric.Delta),
+	)
 
-	return r.memStorage[name], nil
+	return metric, nil
 }
 
 func (r *InMemoryRepo) Metric(name string) (*models.Metrics, error) {
+	op := "InMemoryRepo.Metric"
+
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
 	metric, ok := r.memStorage[name]
-	log.Println("name = ", name)
-	if !ok {
-		for _, val := range r.memStorage {
-			log.Println(val)
-		}
 
+	if !ok {
+		r.logger.Warn("metric not found",
+			zap.String("operation", op),
+			zap.String("metric", name),
+			zap.Int("total_metrics", len(r.memStorage)),
+		)
 		return nil, errors.New("metric not found")
 	}
+
+	r.logger.Debug("metric fetched",
+		zap.String("operation", op),
+		zap.String("metric", name),
+		zap.Any("value", metric),
+	)
+
 	return metric, nil
 }
 
 func (r *InMemoryRepo) AddMetric(metric *models.Metrics) error {
+	op := "InMemoryRepo.AddMetric"
+
 	if metric == nil {
+		r.logger.Error("nil metric passed",
+			zap.String("operation", op),
+		)
 		return errors.New("metric is nil")
 	}
 
-	r.mu.RLock()
-	defer r.mu.RUnlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 
 	r.memStorage[metric.ID] = metric
-	log.Println("Metric added to memStorage")
-	return nil
 
+	r.logger.Info("metric added",
+		zap.String("operation", op),
+		zap.String("metric", metric.ID),
+		zap.String("type", metric.MType),
+	)
+
+	return nil
 }
 
 func (r *InMemoryRepo) CheckExistence(name string) bool {
+	op := "InMemoryRepo.CheckExistence"
+
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
 	_, ok := r.memStorage[name]
+
+	r.logger.Debug("checked existence",
+		zap.String("operation", op),
+		zap.String("metric", name),
+		zap.Bool("exists", ok),
+	)
+
 	return ok
 }

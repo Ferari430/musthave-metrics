@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 type Logger struct {
@@ -23,6 +24,9 @@ func InitLogger(level string) (*Logger, error) {
 
 	cfg := zap.NewProductionConfig()
 	cfg.Level = lvl
+	cfg.Encoding = "console"
+	cfg.EncoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
+	cfg.EncoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
 
 	zl, err := cfg.Build()
 	if err != nil {

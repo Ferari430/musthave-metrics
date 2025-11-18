@@ -27,7 +27,7 @@ func InitRepository(dsn, file_storage_path string, fileStorageFlag bool, logger 
 		producer := pkg.NewProducer(file_storage_path)
 		consumer := pkg.NewConsumer(file_storage_path)
 
-		fs := fileStorage.NewFileStorage(producer, consumer)
+		fs := fileStorage.NewFileStorage(producer, consumer, logger)
 		err := fs.Ping(file_storage_path)
 		if err == nil {
 			log.Println("file initialaized")

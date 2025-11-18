@@ -21,8 +21,3 @@ type Repository interface {
 	UpdateGauge(name string, value float64) (*models.Metrics, error) // апдейт метрики
 	CheckExistence(name string) bool                                 // проверить существование метрики
 }
-
-type RepositoryAgent interface {
-	Add(metrics models.MetricsAgent)
-	Metrics() map[string]float64
-}
