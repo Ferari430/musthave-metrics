@@ -57,32 +57,33 @@ func ConfigurateServer() (string, int, string, bool, string, bool, bool, string)
 	return portServer, storeInterval, fileStoragePath, restore, dsn, fileStorage, enableHashing, key
 }
 
-func ConfigurateAgent() (string, int64, int64, bool, string) {
+func ConfigurateAgent() (string, int, int, bool, string, int) {
 
 	var (
 		portServer     string
-		pollInterval   int64
-		reportInterval int64
+		pollInterval   int
+		reportInterval int
 		enablehashing  bool
 		key            string
+		rate_limit     int
 	)
 
-	flag.Int64Var(&pollInterval, "pollInterval", 2, "PollIntervalValue in sec")
-	flag.Int64Var(&reportInterval, "reportInterval", 3, "ReportIntervalValue in sec")
+	flag.IntVar(&pollInterval, "pollInterval", 1, "PollIntervalValue in sec")
+	flag.IntVar(&reportInterval, "reportInterval", 2, "ReportIntervalValue in sec")
 	flag.StringVar(&portServer, "port", "8080", "port for server")
 	flag.BoolVar(&enablehashing, "es", false, "enable hashing, default:false")
 	flag.StringVar(&key, "key", "secret", "hashing key")
+	flag.IntVar(&rate_limit, "rate_limit", 3, "rateLimit")
 	flag.Parse()
 
 	strPollInterval := os.Getenv("pollInterval")
-	intPollinterval, err := strconv.ParseInt(strPollInterval, 10, 64)
-
+	intPollinterval, err := strconv.Atoi(strPollInterval)
 	if err == nil {
 		pollInterval = intPollinterval
 	}
 
 	strReportInterval := os.Getenv("pollInterval")
-	intReportInterval, err := strconv.ParseInt(strReportInterval, 10, 64)
+	intReportInterval, err := strconv.Atoi(strReportInterval)
 
 	if err == nil {
 		reportInterval = intReportInterval
@@ -92,8 +93,12 @@ func ConfigurateAgent() (string, int64, int64, bool, string) {
 		portServer = envAddres
 	}
 
+	if v := os.Getenv("RATE_LIMIT"); v != "" {
+		rate_limit, _ = strconv.Atoi(v)
+	}
+
 	log.Printf("pollInterval: %v", pollInterval)
 	log.Printf("reportInterval: %v", reportInterval)
 	log.Printf("portServer: %v", portServer)
-	return portServer, pollInterval, reportInterval, enablehashing, key
+	return portServer, pollInterval, reportInterval, enablehashing, key, rate_limit
 }

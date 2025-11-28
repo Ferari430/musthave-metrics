@@ -50,7 +50,6 @@ func NewServerHandler(router *chi.Mux, deps ServerHandlerDeps, logger *logger.Lo
 	router.Post("/value", logger.RequestLogger(handler.Value))
 	router.Post("/valueJ", logger.RequestLogger(pkg.GzipMiddleware(handler.JSONCompressedMetric)))
 	router.Get("/ping", logger.RequestLogger(handler.Ping))
-
 }
 
 func (handler *ServerHandler) Update(w http.ResponseWriter, r *http.Request) {

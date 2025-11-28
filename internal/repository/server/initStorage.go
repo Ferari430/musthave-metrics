@@ -37,7 +37,7 @@ func InitRepository(dsn, file_storage_path string, fileStorageFlag bool, logger 
 
 	//postgres
 	if dsn != "" {
-		pg, err := postgresStorage.Open(dsn)
+		pg, err := postgresStorage.Open(dsn, logger)
 		if err == nil {
 
 			db := postgresStorage.NewPostgresRepository(pg, logger)

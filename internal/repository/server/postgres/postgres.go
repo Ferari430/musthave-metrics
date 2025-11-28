@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"log"
 	"strings"
 
 	models "github.com/Ferari430/musthave-metrics/internal/model"
@@ -23,12 +22,13 @@ func NewPostgresRepository(db *sql.DB, logger *logger.Logger) *PostgresRepositor
 		logger: logger}
 }
 
-func Open(connectionString string) (*sql.DB, error) {
+func Open(connectionString string, logger *logger.Logger) (*sql.DB, error) {
+	op := "postgres.Open"
 	// conn := "postgres://postgres:postgres@localhost:5432/metrics?sslmode=disable"
 	db, err := sql.Open("pgx", connectionString)
 	if err != nil {
-		log.Fatal("cant init postgres pool")
-
+		logger.Debug("cant open postgres connection pool", zap.String("operation", op), zap.Error(err))
+		return nil, err
 	}
 
 	err = db.Ping()
@@ -39,18 +39,12 @@ func Open(connectionString string) (*sql.DB, error) {
 }
 
 func (r *PostgresRepository) Ping() error {
-	connectionString := "postgres://postgres:postgres@localhost:5432/postgres"
 	op := "Postrges.Ping"
-	db, err := sql.Open("pgx", connectionString)
-	if err != nil {
-		r.logger.Debug("cant connect tp db", zap.String("operation", op), zap.Error(err))
-		log.Fatal("cant connect to db")
 
-	}
+	err := r.DB.Ping()
 
-	err = db.Ping()
 	if err != nil {
-		return err
+		r.logger.Debug("cant ping db", zap.String("operation", op), zap.Error(err))
 	}
 
 	r.logger.Debug("connection successes", zap.String("operation", op), zap.Error(nil))
@@ -87,8 +81,6 @@ func (r *PostgresRepository) Add(metrics []*models.Metrics) error {
             hash = excluded.hash
         WHERE metrics.mtype = excluded.mtype`,
 		strings.Join(placeholders, ", "))
-
-	_, err := r.DB.Exec(query, args...)
 
 	result, err := r.DB.Exec(query, args...)
 	if err != nil {

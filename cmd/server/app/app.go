@@ -9,6 +9,7 @@ import (
 	"github.com/Ferari430/musthave-metrics/internal/service"
 	"github.com/Ferari430/musthave-metrics/pkg/logger"
 	"github.com/go-chi/chi/v5"
+	"go.uber.org/zap"
 )
 
 func StartApp(port, fPath string, store_interval int, restore bool, connectionString string, filestorage, hashingFlag bool, key string) error {
@@ -18,6 +19,18 @@ func StartApp(port, fPath string, store_interval int, restore bool, connectionSt
 	if err != nil {
 		return err
 	}
+
+	logger.Debug(
+		"server started with follow configurations:",
+		zap.String("port", port),
+		zap.String("file_path", fPath),
+		zap.Int("store_interval", store_interval),
+		zap.Bool("restore", restore),
+		zap.String("connection_string", connectionString),
+		zap.Bool("file_storage", filestorage),
+		zap.Bool("hashing_flag", hashingFlag),
+		zap.String("key", key),
+	)
 
 	repo, file := repository.InitRepository(connectionString, fPath, filestorage, logger)
 

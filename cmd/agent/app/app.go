@@ -1,6 +1,7 @@
 package app
 
 import (
+	"log"
 	"net/http"
 	"runtime"
 	"sync"
@@ -9,21 +10,30 @@ import (
 	"github.com/Ferari430/musthave-metrics/internal/handler"
 	repositoryAgent "github.com/Ferari430/musthave-metrics/internal/repository/agent"
 	"github.com/Ferari430/musthave-metrics/internal/service/agentService"
+	"github.com/Ferari430/musthave-metrics/pkg"
+	gopsutilMem "github.com/shirou/gopsutil/v3/mem"
 )
 
-func StartApp(portServer, key string, pollInterval, reportInterval int64, hashingFlag bool) {
+func StartApp(portServer, key string, pollInterval, reportInterval int, hashingFlag bool, rate_limit int) {
 	db := repositoryAgent.NewInMemoryAgentDB()
-	client := &http.Client{Timeout: 5 * time.Second}
+	client := &http.Client{Timeout: 10 * time.Second}
 
-	agentService := agentService.NewAgentService(db)
+	memStat, err := gopsutilMem.VirtualMemory()
+	if err != nil {
+		log.Println(err)
+	}
+
+	sema := pkg.NewSemaphore(rate_limit)
+
+	agentService := agentService.NewAgentService(db, memStat, sema)
 	t1 := time.NewTicker(time.Second * time.Duration(pollInterval))
 	t2 := time.NewTicker(time.Second * time.Duration(reportInterval))
 	m := runtime.MemStats{}
 	wg := sync.WaitGroup{}
 
 	wg.Add(2)
-	go agentService.StartTicker(*t1, *t2, &m, &wg)
-	sender := handler.NewAgentSender(agentService, client, portServer, hashingFlag, key)
+	go agentService.StartAgent(*t1, *t2, &m, &wg)
+	sender := handler.NewAgentSender(agentService, client, portServer, hashingFlag, key) // handler layer
 	go sender.Consumer(&wg)
 	wg.Wait()
 

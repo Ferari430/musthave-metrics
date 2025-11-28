@@ -237,7 +237,7 @@ func (a *AgentSender) SendJsonCompressedBatch(metrics []*models.Metrics) {
 		log.Println("signaturing req, hash = ", h)
 	}
 
-	resp, err := a.client.Do(req)
+	resp, err := a.client.Do(req) // <-- блокируемся: ждем ответа
 	if err != nil {
 		log.Println("ERROR:", err)
 		return

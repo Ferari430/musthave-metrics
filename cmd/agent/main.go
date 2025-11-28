@@ -6,6 +6,6 @@ import (
 )
 
 func main() {
-	portServer, pollInterval, reportInterval, hashingFlag, key := pkg.ConfigurateAgent()
-	app.StartApp(portServer, key, pollInterval, reportInterval, hashingFlag)
+	portServer, pollInterval, reportInterval, hashingFlag, key, rate_limit := pkg.ConfigurateAgent()
+	app.StartApp(portServer, key, pollInterval, reportInterval, hashingFlag, rate_limit)
 }
